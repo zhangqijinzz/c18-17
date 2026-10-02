@@ -178,6 +178,39 @@ h1 em { color: #f15a47; font-style: normal; }
 .version-swatch-row { margin-top: 11px; display: flex; align-items: center; gap: 7px; color: #9ca3ad; font-family: 'DM Mono', monospace; font-size: 8px; }
 .version-swatch-row span:nth-child(1), .version-swatch-row span:nth-child(2) { width: 13px; height: 13px; border-radius: 4px; }
 .version-swatch-row span:nth-child(3) { margin-left: auto; }
+.version-manager { display: grid; gap: 12px; }
+.version-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.version-search { flex: 1; height: 34px; padding: 0 10px; color: #a6adb6; background: #fff; border: 1px solid #e1e4e8; border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+.version-search:focus-within { border-color: #f15a47; box-shadow: 0 0 0 3px #f15a4717; }
+.version-search input { min-width: 0; flex: 1; color: #566170; background: transparent; border: 0; outline: 0; font-size: 11px; }
+.version-search input::placeholder { color: #b8bec6; }
+.version-search button { padding: 0; color: #a4abb4; background: none; border: 0; font-size: 15px; line-height: 1; }
+.version-count { color: #9aa1ab; font-family: 'DM Mono', monospace; font-size: 9px; white-space: nowrap; }
+.version-list { margin: 0; padding: 6px; max-height: 280px; overflow-y: auto; list-style: none; background: #fff; border: 1px solid #e8eaed; border-radius: 11px; display: grid; gap: 4px; }
+.version-row { padding: 9px 11px; border: 1px solid transparent; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.version-row:hover { background: #f8f9fb; border-color: #e9ecef; }
+.version-row.active { background: #fff7f5; border-color: #f6d9d2; }
+.version-row-main { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.version-row-main strong { color: #434d5b; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.version-row-main small { color: #aab0b9; font-family: 'DM Mono', monospace; font-size: 8px; white-space: nowrap; }
+.version-tag { padding: 3px 7px; border-radius: 5px; font-size: 8px; font-weight: 600; white-space: nowrap; }
+.version-tag.current { color: #f15a47; background: #fff1ee; }
+.version-tag.slot { color: #24324a; background: #eceef2; }
+.version-row-actions { display: flex; flex: 0 0 auto; gap: 5px; }
+.mini-button { padding: 5px 8px; color: #7c8592; background: #f1f2f4; border: 0; border-radius: 6px; font-size: 8px; font-weight: 600; }
+.mini-button:hover:not(:disabled) { color: #24324a; background: #e6e9ee; }
+.mini-button:disabled { cursor: default; opacity: .45; }
+.mini-button.selected { color: #fff; background: #24324a; }
+.mini-button.danger:hover:not(:disabled) { color: #c2432f; background: #fde8e3; }
+.version-rename { width: 100%; display: flex; align-items: center; gap: 9px; }
+.version-rename input { min-width: 0; width: 150px; padding: 6px 9px; color: #4c5665; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; outline: 0; font-size: 11px; }
+.version-rename input:focus { border-color: #f15a47; box-shadow: 0 0 0 3px #f15a4717; }
+.version-rename-error { flex: 1; color: #c2432f; font-size: 9px; }
+.version-no-result { padding: 18px 4px; color: #a7aeb7; text-align: center; font-size: 10px; }
+.compare-slots { color: #9aa1ab; font-size: 9px; display: flex; align-items: center; gap: 10px; }
+.compare-slots .filled { color: #4e5967; font-weight: 600; }
+.compare-slots-sep { color: #c4cad2; }
+@media (max-width: 540px) { .version-row { flex-direction: column; align-items: stretch; gap: 8px; } .version-row-actions { justify-content: flex-end; flex-wrap: wrap; } .version-row-main { flex-wrap: wrap; } .version-toolbar { flex-direction: column; align-items: stretch; } .version-list { max-height: 240px; } .version-rename { flex-wrap: wrap; } .version-rename input { width: 100%; } .compare-slots { flex-wrap: wrap; } }
 .bottom-status { max-width: 1484px; margin: 0 auto; padding: 18px 48px 24px; color: #a3aab3; border-top: 1px solid #e5e7ea; display: flex; justify-content: space-between; font-family: 'DM Mono', monospace; font-size: 9px; }
 .bottom-status span { display: inline-flex; align-items: center; gap: 7px; }
 .footer-sep { margin: 0 4px; }

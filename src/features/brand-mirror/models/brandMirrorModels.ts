@@ -21,6 +21,8 @@ export interface BrandDocument {
   tokens: BrandTokens
   theme: BrandTheme
   versions: SavedVersion[]
+  /** 已经用于自动命名/ID 的序号数，只增不减，保证删除后名字与ID都不重复 */
+  versionSequence: number
 }
 
 export interface BrandMirrorSnapshot {
@@ -28,8 +30,14 @@ export interface BrandMirrorSnapshot {
   tokens: BrandTokens
   theme: BrandTheme
   versions: SavedVersion[]
+  /** 已用于自动命名/ID 的序号数，只增不减 */
+  versionSequence: number
   compareMode: boolean
+  /** 用户选中参与对比的版本ID，按左/右槽位排列 */
+  compareVersionIds: string[]
   activeVersionId: string | null
+  /** 当前工作区相对已保存版本是否有未保存改动 */
+  dirty: boolean
   contrastRatio: number
   contrastWarning: boolean
   message: string
