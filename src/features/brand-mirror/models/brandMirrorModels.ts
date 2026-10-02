@@ -11,6 +11,8 @@ export interface BrandTokens {
 
 export interface SavedVersion {
   id: string
+  /** 单调递增的版本序号，只增不复用，作为默认名称与冲突判定的依据 */
+  sequence: number
   label: string
   tokens: BrandTokens
   createdAt: string
@@ -21,6 +23,8 @@ export interface BrandDocument {
   tokens: BrandTokens
   theme: BrandTheme
   versions: SavedVersion[]
+  /** 下一个版本序号；删除版本不回退，保证名称永不重复 */
+  versionSequence: number
 }
 
 export interface BrandMirrorSnapshot {
@@ -29,6 +33,9 @@ export interface BrandMirrorSnapshot {
   theme: BrandTheme
   versions: SavedVersion[]
   compareMode: boolean
+  /** 对比视图所选的两个版本（可能已被删除，此时对应槽位为 null） */
+  compareVersionIds: [string | null, string | null]
+  /** 与当前工作区令牌完全一致的版本，编辑后没有匹配版本时为 null */
   activeVersionId: string | null
   contrastRatio: number
   contrastWarning: boolean

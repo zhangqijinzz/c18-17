@@ -1,15 +1,37 @@
 import { clampTokenValues, cloneTokens, contrastRatio, normalizeColor, themeTokens, validateTokens } from '../domain/brandRules'
+import {
+  defaultVersionLabel,
+  isLabelTaken,
+  normalizeVersionLabel,
+  pruneCompareSelection,
+  tokensEqual,
+  uniqueLabel,
+} from '../domain/versionRules'
 import type { BrandRepository } from '../repositories/brandRepository'
 import type { BrandGuidelinesExporter } from '../services/exportService'
 import { INITIAL_TOKENS, type BrandDocument, type BrandMirrorSnapshot, type BrandTheme, type SavedVersion } from '../models/brandMirrorModels'
 
 type Listener = () => void
 
+function createVersionId(sequence: number): string {
+  const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10)
+  return `version-${sequence}-${Date.now().toString(36)}-${random}`
+}
+
 export class BrandMirrorViewModel {
-  private snapshot: BrandMirrorSnapshot = this.makeSnapshot({ tokens: INITIAL_TOKENS, theme: 'studio', versions: [] })
+  private snapshot: BrandMirrorSnapshot = this.makeSnapshot(
+    { tokens: INITIAL_TOKENS, theme: 'studio', versions: [] },
+    '',
+    'loading',
+    { compareMode: false, compareVersionIds: [null, null] },
+  )
   private readonly listeners = new Set<Listener>()
   private readonly repository: BrandRepository
   private readonly exporter?: BrandGuidelinesExporter
+  /** 单调递增的版本序号，删除不回退，随文档持久化 */
+  private versionSequence = 0
 
   constructor(repository: BrandRepository, exporter?: BrandGuidelinesExporter) {
     this.repository = repository
@@ -28,9 +50,18 @@ export class BrandMirrorViewModel {
   initialize(): void {
     const stored = this.repository.load()
     if (stored) {
-      this.snapshot = this.makeSnapshot(stored, '已恢复最近一次工作状态')
+      this.versionSequence = stored.versionSequence ?? maxSequence(stored.versions)
+      this.snapshot = this.makeSnapshot(stored, '已恢复最近一次工作状态', 'ready', {
+        compareMode: false,
+        compareVersionIds: [null, null],
+      })
     } else {
-      this.snapshot = this.makeSnapshot({ tokens: INITIAL_TOKENS, theme: 'studio', versions: [] }, '从 Studio warm 开始探索')
+      this.snapshot = this.makeSnapshot(
+        { tokens: INITIAL_TOKENS, theme: 'studio', versions: [] },
+        '从 Studio warm 开始探索',
+        'ready',
+        { compareMode: false, compareVersionIds: [null, null] },
+      )
     }
     this.emit()
   }
@@ -57,68 +88,191 @@ export class BrandMirrorViewModel {
   saveVersion(): void {
     const validationError = validateTokens(this.snapshot.tokens)
     if (validationError) {
-      this.snapshot = { ...this.snapshot, status: 'error', message: validationError }
-      this.emit()
+      this.fail(validationError)
       return
     }
+    const sequence = this.versionSequence + 1
+    const versions = this.snapshot.versions
     const nextVersion: SavedVersion = {
-      id: `version-${Date.now()}`,
-      label: this.snapshot.versions.length === 0 ? 'Version A' : `Version ${String.fromCharCode(65 + this.snapshot.versions.length)}`,
+      id: createVersionId(sequence),
+      sequence,
+      // 序号永不复用；若默认名与用户自定义名撞车，自动追加后缀
+      label: uniqueLabel(defaultVersionLabel(sequence), versions),
       tokens: cloneTokens(this.snapshot.tokens),
       createdAt: new Date().toISOString(),
     }
-    const versions = [...this.snapshot.versions, nextVersion]
-    this.persist({ tokens: this.snapshot.tokens, theme: this.snapshot.theme, versions }, '版本已保存')
+    this.versionSequence = sequence
+    this.persist(
+      { tokens: this.snapshot.tokens, theme: this.snapshot.theme, versions: [...versions, nextVersion] },
+      `版本 ${nextVersion.label} 已保存`,
+    )
+  }
+
+  renameVersion(versionId: string, label: string): void {
+    const target = this.snapshot.versions.find((version) => version.id === versionId)
+    if (!target) return
+    const normalized = normalizeVersionLabel(label)
+    if (!normalized) {
+      this.fail('版本名称不能为空')
+      return
+    }
+    if (isLabelTaken(normalized, this.snapshot.versions, versionId)) {
+      this.fail('版本名称已存在，请换一个名字')
+      return
+    }
+    const versions = this.snapshot.versions.map((version) =>
+      version.id === versionId ? { ...version, label: normalized } : version,
+    )
+    this.persist({ tokens: this.snapshot.tokens, theme: this.snapshot.theme, versions }, `版本已重命名为 ${normalized}`)
+  }
+
+  deleteVersion(versionId: string): void {
+    const target = this.snapshot.versions.find((version) => version.id === versionId)
+    if (!target) return
+    const versions = this.snapshot.versions.filter((version) => version.id !== versionId)
+    // 版本号只增不补，被删名称（含默认名）以后不会再出现；对比选择里的悬空引用由 makeSnapshot 清理
+    this.persist(
+      { tokens: this.snapshot.tokens, theme: this.snapshot.theme, versions },
+      `版本 ${target.label} 已删除`,
+    )
+  }
+
+  restoreVersion(versionId: string): void {
+    const target = this.snapshot.versions.find((version) => version.id === versionId)
+    if (!target) return
+    this.persist(
+      { tokens: cloneTokens(target.tokens), theme: this.snapshot.theme, versions: this.snapshot.versions },
+      `工作区已恢复为 ${target.label}`,
+    )
   }
 
   toggleCompare(): void {
-    this.snapshot = { ...this.snapshot, compareMode: !this.snapshot.compareMode, message: this.snapshot.compareMode ? '已退出对比模式' : '正在对比最近两个版本' }
-    this.emit()
+    if (this.snapshot.compareMode) {
+      this.patchUi({ compareMode: false }, '已退出对比模式')
+      return
+    }
+    if (this.snapshot.versions.length < 2) return
+    this.patchUi({ compareMode: true }, '正在对比选中的两个版本')
+  }
+
+  setCompareVersion(slot: 0 | 1, versionId: string | null): void {
+    const current = this.snapshot.compareVersionIds
+    const compareVersionIds: [string | null, string | null] =
+      slot === 0 ? [versionId, current[1]] : [current[0], versionId]
+    const distinct = compareVersionIds[0] && compareVersionIds[1] && compareVersionIds[0] !== compareVersionIds[1]
+    this.patchUi(
+      { compareVersionIds, compareMode: distinct ? true : this.snapshot.compareMode },
+      distinct ? '正在对比选中的两个版本' : '请再选择一个版本进行对比',
+    )
   }
 
   exportBrandGuidelines(): void {
     if (!this.exporter) return
     try {
       this.exporter.export(this.snapshot)
-      this.snapshot = { ...this.snapshot, message: '品牌规范已导出' }
+      this.patchUi({}, '品牌规范已导出')
     } catch {
-      this.snapshot = { ...this.snapshot, status: 'error', message: '导出失败，请稍后重试' }
+      this.fail('导出失败，请稍后重试')
     }
-    this.emit()
   }
 
   private update(partial: Partial<Pick<BrandDocument, 'tokens' | 'theme'>>, message: string): void {
     const tokens = partial.tokens ?? this.snapshot.tokens
-    this.snapshot = this.makeSnapshot({ tokens, theme: partial.theme ?? this.snapshot.theme, versions: this.snapshot.versions }, message, 'editing')
+    this.snapshot = this.makeSnapshot(
+      { tokens, theme: partial.theme ?? this.snapshot.theme, versions: this.snapshot.versions },
+      message,
+      'editing',
+    )
     this.persistCurrent()
   }
 
   private persistCurrent(): void {
     try {
-      this.repository.save({ version: 1, tokens: this.snapshot.tokens, theme: this.snapshot.theme, versions: this.snapshot.versions })
+      this.repository.save(this.toDocument())
     } catch {
-      this.snapshot = { ...this.snapshot, status: 'error', message: '本地保存失败，但当前编辑仍保留在页面中' }
+      this.fail('本地保存失败，但当前编辑仍保留在页面中')
+      return
     }
     this.emit()
   }
 
-  private persist(document: Omit<BrandDocument, 'version'>, message: string): void {
+  private persist(
+    document: Omit<BrandDocument, 'version' | 'versionSequence'>,
+    message: string,
+    status: BrandMirrorSnapshot['status'] = 'ready',
+    ui?: { compareMode?: boolean; compareVersionIds?: BrandMirrorSnapshot['compareVersionIds'] },
+  ): void {
     try {
-      this.repository.save({ version: 1, ...document })
-      this.snapshot = this.makeSnapshot(document, message, 'ready')
+      this.repository.save({ version: 1, versionSequence: this.versionSequence, ...document })
+      this.snapshot = this.makeSnapshot(document, message, status, ui)
     } catch {
-      this.snapshot = { ...this.snapshot, status: 'error', message: '版本保存失败，请稍后重试' }
+      this.fail('版本保存失败，请稍后重试')
+      return
     }
     this.emit()
   }
 
-  private makeSnapshot(document: Omit<BrandDocument, 'version'>, message = '', status: BrandMirrorSnapshot['status'] = 'ready'): BrandMirrorSnapshot {
+  private patchUi(ui: Partial<Pick<BrandMirrorSnapshot, 'compareMode' | 'compareVersionIds'>>, message: string): void {
+    this.snapshot = this.makeSnapshot(
+      { tokens: this.snapshot.tokens, theme: this.snapshot.theme, versions: this.snapshot.versions },
+      message,
+      this.snapshot.status === 'error' ? 'ready' : this.snapshot.status,
+      {
+        compareMode: ui.compareMode ?? this.snapshot.compareMode,
+        compareVersionIds: ui.compareVersionIds ?? this.snapshot.compareVersionIds,
+      },
+    )
+    this.emit()
+  }
+
+  private fail(message: string): void {
+    this.snapshot = { ...this.snapshot, status: 'error', message }
+    this.emit()
+  }
+
+  private toDocument(): BrandDocument {
+    return {
+      version: 1,
+      tokens: this.snapshot.tokens,
+      theme: this.snapshot.theme,
+      versions: this.snapshot.versions,
+      versionSequence: this.versionSequence,
+    }
+  }
+
+  private makeSnapshot(
+    document: Omit<BrandDocument, 'version' | 'versionSequence'>,
+    message = '',
+    status: BrandMirrorSnapshot['status'] = 'ready',
+    ui?: { compareMode?: boolean; compareVersionIds?: BrandMirrorSnapshot['compareVersionIds'] },
+  ): BrandMirrorSnapshot {
     const ratio = contrastRatio(document.tokens.primary, document.tokens.secondary)
-    const latestVersion = document.versions[document.versions.length - 1]
-    return { status, tokens: cloneTokens(document.tokens), theme: document.theme, versions: document.versions, compareMode: false, activeVersionId: latestVersion?.id ?? null, contrastRatio: ratio, contrastWarning: ratio < 3, message }
+    const compareVersionIds = pruneCompareSelection(
+      ui?.compareVersionIds ?? this.snapshot.compareVersionIds,
+      document.versions,
+    )
+    const requestedCompare = ui?.compareMode ?? this.snapshot.compareMode
+    const hasTwoVersions = document.versions.length >= 2
+    const activeVersion = document.versions.find((version) => tokensEqual(version.tokens, document.tokens))
+    return {
+      status,
+      tokens: cloneTokens(document.tokens),
+      theme: document.theme,
+      versions: document.versions,
+      compareMode: requestedCompare && hasTwoVersions,
+      compareVersionIds,
+      activeVersionId: activeVersion?.id ?? null,
+      contrastRatio: ratio,
+      contrastWarning: ratio < 3,
+      message,
+    }
   }
 
   private emit(): void {
     this.listeners.forEach((listener) => listener())
   }
+}
+
+function maxSequence(versions: SavedVersion[]): number {
+  return versions.reduce((max, version) => Math.max(max, version.sequence ?? 0), 0)
 }

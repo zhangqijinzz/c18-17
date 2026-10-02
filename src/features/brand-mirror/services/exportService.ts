@@ -1,3 +1,4 @@
+import { bySequenceDesc } from '../domain/versionRules'
 import type { BrandMirrorSnapshot } from '../models/brandMirrorModels'
 
 export interface BrandGuidelinesExporter {
@@ -6,7 +7,17 @@ export interface BrandGuidelinesExporter {
 
 export function buildBrandGuidelinesMarkdown(snapshot: BrandMirrorSnapshot): string {
   const { tokens } = snapshot
-  const versions = snapshot.versions.length === 0 ? '- 暂无保存版本' : snapshot.versions.map((version) => `- ${version.label} · ${version.createdAt.slice(0, 10)} · 主色 ${version.tokens.primary} · 辅助色 ${version.tokens.secondary}`).join('\n')
+  // 始终基于当前快照生成：重命名、删除、恢复后清单即时跟随
+  const versions =
+    snapshot.versions.length === 0
+      ? '- 暂无保存版本'
+      : [...snapshot.versions]
+          .sort(bySequenceDesc)
+          .map((version) => {
+            const marker = version.id === snapshot.activeVersionId ? ' · **← 工作区当前版本**' : ''
+            return `- ${version.label} · ${version.createdAt.slice(0, 10)} · 主色 ${version.tokens.primary} · 辅助色 ${version.tokens.secondary}${marker}`
+          })
+          .join('\n')
   return `# BrandMirror 品牌规范\n\n> 导出时间：${new Date().toISOString().slice(0, 10)}\n> 当前主题：${snapshot.theme}\n\n## 品牌色\n\n| 令牌 | 值 |\n| --- | --- |\n| 主色 \`primary\` | \`${tokens.primary}\` |\n| 辅助色 \`secondary\` | \`${tokens.secondary}\` |\n| 对比度 | ${snapshot.contrastRatio.toFixed(1)}:1 |\n\n## 圆角尺度\n\n${tokens.radiusScale.map((value, index) => `- \`radius.${index + 1}\`: ${value}px`).join('\n')}\n\n## 间距体系\n\n${tokens.spacingScale.map((value, index) => `- \`spacing.${index + 1}\`: ${value}px`).join('\n')}\n\n## 字体比例\n\n${tokens.typeScale.map((value, index) => `- \`type.${index + 1}\`: ${value}px`).join('\n')}\n\n## 保存版本\n\n${versions}\n\n---\n由 BrandMirror 品牌视觉实验室生成。\n`
 }
 
